@@ -69,7 +69,10 @@ from extrinsic_calibrator_core.python_camera_topics_parameters import cameras_pa
 
 class ExtrinsicCalibrator(Node):
     def __init__(self):
-        super().__init__('detector_aruco_node')
+        super().__init__(
+            'detector_aruco_node',
+            automatically_declare_parameters_from_overrides=True
+        )
         
         # TF broadcaster
         self.tf_broadcaster = tf2_ros.StaticTransformBroadcaster(self)
@@ -80,24 +83,31 @@ class ExtrinsicCalibrator(Node):
         aruco_params_listener = aruco_params.ParamListener(self)
         imported_aruco_params = aruco_params_listener.get_params()
         self.real_aruco_params = ArucoParams(self,imported_aruco_params)
+
+        # Try dynamic camera loading first
+        self.array_of_cameras = self.load_cameras_dynamic()
+
+        if not self.array_of_cameras:
+            # Fallback to previous static (code-generated) camera parameters if dynamic not provided
+            self.get_logger().info("No dynamic 'cameras.*' parameters found. Falling back to generated camera parameter class.")
         
-        cameras_param_listener = cameras_params.ParamListener(self)
-        self.imported_cameras_params = cameras_param_listener.get_params()
-        
-        # Get all cameras, filtering out those that start or end with '_'
-        cam_attributes = [attr for attr in dir(self.imported_cameras_params) if not (attr.startswith('_') or attr.endswith('_'))]
-        
-        # construct the cameras
-        self.array_of_cameras = []
-        
-        for camera_counter, attr_name in enumerate(cam_attributes):
-            attr_value = getattr(self.imported_cameras_params, attr_name)
+            cameras_param_listener = cameras_params.ParamListener(self)
+            self.imported_cameras_params = cameras_param_listener.get_params()
             
-            # Check if the attribute has the 'image_topic' attribute before accessing it
-            if not (hasattr(attr_value, 'image_topic') and hasattr(attr_value, 'image_topic')):
-                self.get_logger().error(f"Skipping attribute '{attr_name}' due to missing 'image_topic' attribute.")
-            else:
-                self.array_of_cameras.append(Camera(self, attr_name, camera_counter, attr_value.image_topic, attr_value.camera_info_topic, self.bridge, self.tf_broadcaster, self.real_aruco_params))
+            # Get all cameras, filtering out those that start or end with '_'
+            cam_attributes = [attr for attr in dir(self.imported_cameras_params) if not (attr.startswith('_') or attr.endswith('_'))]
+            
+            # construct the cameras
+            self.array_of_cameras = []
+            
+            for camera_counter, attr_name in enumerate(cam_attributes):
+                attr_value = getattr(self.imported_cameras_params, attr_name)
+                
+                # Check if the attribute has the 'image_topic' attribute before accessing it
+                if not (hasattr(attr_value, 'image_topic') and hasattr(attr_value, 'image_topic')):
+                    self.get_logger().error(f"Skipping attribute '{attr_name}' due to missing 'image_topic' attribute.")
+                else:
+                    self.array_of_cameras.append(Camera(self, attr_name, camera_counter, attr_value.image_topic, attr_value.camera_info_topic, self.bridge, self.tf_broadcaster, self.real_aruco_params))
 
         # periodically check if all cameras are calibrated        
         self.timer = self.create_timer(2.0, self.check_camera_transforms_callback)
@@ -646,6 +656,53 @@ class ExtrinsicCalibrator(Node):
                 table.add_row([marker_id] + [cell for cell in row])
         self.get_logger().info(f"{title}\n" + table.get_string())
 
+    def load_cameras_dynamic(self):
+        """
+        Dynamically load cameras from a parameter namespace:
+        
+        cameras:
+          cam_name:
+            image_topic: /some/image
+            camera_info_topic: /some/camera_info
+        
+        This lets external YAMLs add arbitrary cameras without regenerating code.
+        """
+        cameras = []
+        # Retrieve all parameters under 'cameras'
+        raw = self.get_parameters_by_prefix('cameras')
+        if not raw:
+            return cameras  # empty -> fallback will be used
+        
+        # raw keys look like: 'cam_front.image_topic', 'cam_front.camera_info_topic'
+        structured = {}
+        for full_key, param in raw.items():
+            parts = full_key.split('.')
+            if len(parts) != 2:
+                continue
+            cam_name, field = parts
+            structured.setdefault(cam_name, {})[field] = param.value
+        
+        # Build Camera objects
+        for idx, (cam_name, fields) in enumerate(sorted(structured.items())):
+            image_topic = fields.get('image_topic')
+            info_topic = fields.get('camera_info_topic')
+            if not image_topic or not info_topic:
+                self.get_logger().warn(
+                    f"Camera '{cam_name}' skipped: requires 'image_topic' and 'camera_info_topic'. Got: {fields}"
+                )
+                continue
+            cameras.append(
+                Camera(self,
+                       cam_name,
+                       idx,
+                       image_topic,
+                       info_topic,
+                       self.bridge,
+                       self.tf_broadcaster,
+                       self.real_aruco_params)
+            )
+        return cameras
+
 
 
 class ArucoParams():
@@ -785,6 +842,3 @@ class Camera():
                 if marker_id not in self.reliable_marker_transforms.keys():
                     self.node.get_logger().warn(f"Camera {self.camera_name}: Marker {marker_id} is not reliable, yet")
             return False
-        
-            
-            
