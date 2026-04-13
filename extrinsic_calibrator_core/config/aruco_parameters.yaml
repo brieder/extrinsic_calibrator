@@ -1,7 +1,26 @@
 aruco_params:
   aruco_dict:
     type: string
-    default_value: "DICT_6X6_250"
+    default_value: "DICT_APRILTAG_36h11"
   marker_length:
     type: double
-    default_value: 0.26
+    default_value: 0.2
+  reference_marker:
+    type: int
+    default_value: 0
+  draw_markers:
+    type: bool
+    default_value: False
+  frame_averaging:
+    type: bool
+    default_value: True
+  frame_averaging_queue_size:
+    type: int
+    default_value: 14
+  position_threshold:
+    type: double
+    default_value: 0.02
+  rotation_threshold:
+    type: double
+    default_value: 10.0
+    description: "Rotation threshold in degrees."

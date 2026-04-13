@@ -60,7 +60,9 @@ from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 import tf2_ros
 import tf_transformations
-from rclpy.qos import qos_profile_sensor_data
+
+from rclpy.qos import qos_profile_sensor_data, qos_profile_system_default
+from rclpy.qos_overriding_options import QoSOverridingOptions
 
 # Custom parameters
 from extrinsic_calibrator_core.python_aruco_parameters import aruco_params
@@ -83,7 +85,9 @@ class ExtrinsicCalibrator(Node):
         
         aruco_params_listener = aruco_params.ParamListener(self)
         imported_aruco_params = aruco_params_listener.get_params()
-        self.real_aruco_params = ArucoParams(self,imported_aruco_params)
+        self.real_aruco_params = ArucoParams(self, imported_aruco_params)
+
+        self.reference_marker = imported_aruco_params.reference_marker
 
         # Try dynamic camera loading first
         self.array_of_cameras = self.load_cameras_dynamic()
@@ -202,12 +206,12 @@ class ExtrinsicCalibrator(Node):
                     self.get_logger().warn(f"Marker {marker_id} is only seen by one camera (Camera {camera.camera_name})")
                             
         # Check if specifically marker 0 is seen by any camera
-        self.marker_zero_visible = any(
-            self.is_marker_visible_from_camera_table[0][camera.camera_id]
+        self.reference_marker_visible = any(
+            self.is_marker_visible_from_camera_table[self.reference_marker][camera.camera_id]
             for camera in self.array_of_cameras
         )
-        if not self.marker_zero_visible:
-            self.get_logger().warn("Marker 0 is not seen by any camera. Falling back to a different world marker.")
+        if not self.reference_marker_visible:
+            self.get_logger().warn(f"Marker {self.reference_marker} is not seen by any camera. Falling back to a different world marker.")
 
         return True
         
@@ -251,8 +255,8 @@ class ExtrinsicCalibrator(Node):
         self.center_marker = self.find_random_max_index(self.scores_table)
         self.get_logger().info(f"Our central marker is Marker {self.center_marker}")
 
-        if self.marker_zero_visible:
-            self.world_marker_id = 0
+        if self.reference_marker_visible:
+            self.world_marker_id = self.reference_marker
         else:
             self.world_marker_id = self.center_marker
             self.get_logger().warn(f"Using Marker {self.world_marker_id} as the world reference.")
@@ -651,7 +655,7 @@ class ExtrinsicCalibrator(Node):
 
     def display_camera_to_marker_table(self, title, table_data):
         table = PrettyTable()
-        table.field_names = ["Marker ID"] + [f"Camera {i}" for i in range(len(self.array_of_cameras))]
+        table.field_names = ["Marker ID"] + [f"{cam.camera_name}" for cam in self.array_of_cameras]
         if type(table_data[0][0]) is bool:
             for marker_id, row in enumerate(table_data):
                 table.add_row([marker_id] + ['✓' if cell else '✗' for cell in row])
@@ -729,7 +733,12 @@ class ArucoParams():
             node.get_logger().error(f"cv2.aruco doesn't have a dictionary with the name '{aruco_params.aruco_dict}'")
         self.marker_length = aruco_params.marker_length
 
-        
+        self.draw_markers = aruco_params.draw_markers
+        self.frame_averaging = aruco_params.frame_averaging
+        self.frame_averaging_queue_size = aruco_params.frame_averaging_queue_size
+        self.position_threshold = aruco_params.position_threshold
+        self.rotation_threshold = aruco_params.rotation_threshold
+
             
 class Camera():
     def __init__(self, node:Node, camera_name:str, camera_id:int, image_topic:str, camera_info_topic:str, bridge:CvBridge, broadcaster:tf2_ros.TransformBroadcaster, aruco_params:ArucoParams):
@@ -749,40 +758,94 @@ class Camera():
         
         # Define Aruco marker properties
         self.aruco_dict = aruco_params.aruco_dict
+
+        self.draw_markers = aruco_params.draw_markers
+        self.frame_averaging = aruco_params.frame_averaging
+        self.frame_averaging_queue_size = aruco_params.frame_averaging_queue_size
+        self.position_threshold = aruco_params.position_threshold
+        self.rotation_threshold = aruco_params.rotation_threshold
+        
         self.parameters = cv2.aruco.DetectorParameters()
         # Use subpixel corner refinement for more stable pose estimation.
-        self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-        self.parameters.cornerRefinementWinSize = 5
-        self.parameters.cornerRefinementMaxIterations = 30
-        self.parameters.cornerRefinementMinAccuracy = 0.1
+        self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
+        #self.parameters.cornerRefinementWinSize = 5
+        #self.parameters.cornerRefinementMaxIterations = 30
+        #self.parameters.cornerRefinementMinAccuracy = 0.1
+
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.parameters)
         self.marker_length = aruco_params.marker_length  # length of the marker side in meters (adjust as needed)
 
         # Subscribe to the camera image topic and camera info
-        self.image_sub = self.node.create_subscription(Image, image_topic, self.image_callback, qos_profile_sensor_data)
-        self.camera_info_sub = self.node.create_subscription(CameraInfo, camera_info_topic, self.camera_info_callback, 1)
-        self.cv2_image_publisher = self.node.create_publisher(Image, f"{image_topic}/detected_markers", 10)
-        
+        self.image_sub = self.node.create_subscription(Image, 
+                                                       image_topic, 
+                                                       self.image_callback,
+                                                       qos_profile=qos_profile_sensor_data)
+                                                       #qos_overriding_options=QoSOverridingOptions.with_default_policies())
+        self.camera_info_sub = self.node.create_subscription(CameraInfo, 
+                                                             camera_info_topic, 
+                                                             self.camera_info_callback,
+                                                             qos_profile=qos_profile_sensor_data)
+                                                             #qos_overriding_options=QoSOverridingOptions.with_default_policies())
+
+        if self.draw_markers:
+            self.cv2_image_publisher = self.node.create_publisher(Image, f"{image_topic}/detected_markers", 10)
+
         self.marker_transforms = {}
         self.reliable_marker_transforms = {}
+        
+        # frame averaging
+        self.avg_image_cache_count = 0
+        self.avg_image_accumulator = None
+        self.avg_image_queue = deque(maxlen=self.image_averaging_queue_size)
 
 
     def camera_info_callback(self, msg):
+        #print(f'camera_info_callback {self.camera_info_topic}')
+        
         if self.camera_matrix is None:
             self.camera_matrix = np.array(msg.k).reshape((3, 3))
             self.dist_coeffs = np.array(msg.d)
             self.node.get_logger().info(f"Camera {self.camera_name} parameters received.")
 
 
-    def image_callback(self, msg):       
+    def image_callback(self, msg):
+        #print(f'image_callback {self.image_topic}')     
+
+        if self.are_all_transforms_precise(verbose=False):
+            return
+        
         if self.camera_matrix is None or self.dist_coeffs is None:
             self.node.get_logger().warn(f"Camera {self.camera_name} parameters not yet received.")
             return
         
         cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
 
+        det_image = cv_image 
+        if self.frame_averaging:
+            if self.avg_image_cache_count < self.frame_averaging_queue_size:
+                # fill up the accumulator
+                if self.avg_image_accumulator is None:
+                    self.avg_image_accumulator = np.zeros(cv_image.shape, dtype=np.float32)
+                self.avg_image_accumulator += cv_image
+                self.avg_image_cache_count += 1
+                self.avg_image_queue.append(cv_image)
+                return
+            
+            # Subtract old frame from accumulator.
+            self.avg_image_accumulator -= self.avg_image_queue[0]
+            # Add new frame to accumulator.
+            self.avg_image_accumulator += cv_image
+            # Compute averaged frame from accumulator.
+            det_image = (self.avg_image_accumulator * (1.0 / self.avg_image_cache_count)).astype(np.uint8)
+            # Add new frame to the queue.
+            # "Once a bounded length deque is full, when new items are added, a 
+            # corresponding number of items are discarded from the opposite end."
+            self.avg_image_queue.append(cv_image)
+
+            #cv2.imwrite(f"{self.camera_name}_avg.png", det_image)
+
         # For ArUco detection, you can use the filtered_image directly
-        corners, ids, rejected_img_points = self.detector.detectMarkers(cv_image)
+        corners, ids, rejected_img_points = self.detector.detectMarkers(det_image)
         detected_ids = set()
         if ids is not None:
             for i, id in enumerate(ids):
@@ -797,7 +860,7 @@ class Camera():
                                         [self.marker_length/2, -self.marker_length/2, 0],
                                         [-self.marker_length/2,-self.marker_length/2, 0]], dtype=np.float32)
                 
-                success, rvec, tvec = cv2.solvePnP(objPoints, corners[i], self.camera_matrix, self.dist_coeffs)
+                success, rvec, tvec = cv2.solvePnP(objPoints, corners[i], self.camera_matrix, self.dist_coeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 if success:
                     rot_matrix, _ = cv2.Rodrigues(rvec)
                     translation_matrix = np.eye(4)
@@ -805,10 +868,11 @@ class Camera():
                     translation_matrix[:3, 3] = tvec.flatten()
                     
                     # Draw the transform
-                    cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
-                    cv2.drawFrameAxes(cv_image, self.camera_matrix, self.dist_coeffs, rvec, tvec, self.marker_length/2)
-                    ros_image = self.bridge.cv2_to_imgmsg(cv_image, "bgr8")
-                    self.cv2_image_publisher.publish(ros_image)
+                    if self.draw_markers:
+                        cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
+                        cv2.drawFrameAxes(cv_image, self.camera_matrix, self.dist_coeffs, rvec, tvec, self.marker_length/2)
+                        ros_image = self.bridge.cv2_to_imgmsg(cv_image, "bgr8")
+                        self.cv2_image_publisher.publish(ros_image)
                     
                     # Filter out the already reliable markers
                     if marker_id in self.reliable_marker_transforms:
@@ -832,16 +896,18 @@ class Camera():
                 for marker_id, transform in self.reliable_marker_transforms.items():
                     if marker_id in self.marker_transforms:
                         del self.marker_transforms[marker_id]
+        else:
+            print(f"Camera {self.camera_name}: No markers detected in this frame.")
 
 
     def check_precision(self, marker_id, transform):
-        if self.is_precise(transform):
+        if self.is_precise(marker_id, transform):
             self.node.get_logger().info(f"Camera {self.camera_name}: Marker {marker_id} is reliable")
             # add the last transform of the array in the dictionary as reliable marker transform
             self.reliable_marker_transforms[marker_id] = transform[-1]
 
 
-    def is_precise(self, transforms):
+    def is_precise(self, marker_id, transforms):
         if all(transform is not None for transform in transforms):
             positions = np.array([t[:3, 3] for t in transforms])
             rotations = np.array([tf_transformations.euler_from_matrix(t) for t in transforms])
@@ -849,17 +915,24 @@ class Camera():
             position_range = np.ptp(positions, axis=0)
             rotation_range = np.ptp(rotations, axis=0)
 
-            return np.all(position_range < 0.02) and np.all(rotation_range < np.radians(10))
+            pos_err = np.all(position_range < self.position_threshold)
+            rot_err = np.all(rotation_range < self.rotation_threshold)
+
+            print(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {pos_err}, Rot (rads): {rotation_range} Pass: {rot_err}")
+
+            return pos_err and rot_err
         else:
             return False
        
         
-    def are_all_transforms_precise(self):
+    def are_all_transforms_precise(self, verbose=True):
         if len(self.reliable_marker_transforms) > 0 and len(self.marker_transforms) == 0:
-            self.node.get_logger().info(f"Camera {self.camera_name}: All markers are reliable")
+            if verbose:
+                self.node.get_logger().info(f"Camera {self.camera_name}: All markers are reliable")
             return True
         else:
-            for marker_id, transform in self.marker_transforms.items():
-                if marker_id not in self.reliable_marker_transforms.keys():
-                    self.node.get_logger().warn(f"Camera {self.camera_name}: Marker {marker_id} is not reliable, yet")
+            if verbose:
+                for marker_id, transform in self.marker_transforms.items():
+                    if marker_id not in self.reliable_marker_transforms.keys():
+                        self.node.get_logger().warn(f"Camera {self.camera_name}: Marker {marker_id} is not reliable, yet")
             return False
