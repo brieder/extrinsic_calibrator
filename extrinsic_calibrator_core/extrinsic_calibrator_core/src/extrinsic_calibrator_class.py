@@ -796,7 +796,7 @@ class Camera():
         # frame averaging
         self.avg_image_cache_count = 0
         self.avg_image_accumulator = None
-        self.avg_image_queue = deque(maxlen=self.image_averaging_queue_size)
+        self.avg_image_queue = deque(maxlen=self.frame_averaging_queue_size)
 
 
     def camera_info_callback(self, msg):
