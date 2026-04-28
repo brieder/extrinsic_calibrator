@@ -800,7 +800,7 @@ class Camera():
 
 
     def camera_info_callback(self, msg):
-        #print(f'camera_info_callback {self.camera_info_topic}')
+        #self.node.get_logger().warn(f'camera_info_callback {self.camera_info_topic}')
         
         if self.camera_matrix is None:
             self.camera_matrix = np.array(msg.k).reshape((3, 3))
@@ -809,7 +809,7 @@ class Camera():
 
 
     def image_callback(self, msg):
-        #print(f'image_callback {self.image_topic}')     
+        #self.node.get_logger().warn(f'image_callback {self.image_topic}')     
 
         if self.are_all_transforms_precise(verbose=False):
             return
@@ -897,7 +897,7 @@ class Camera():
                     if marker_id in self.marker_transforms:
                         del self.marker_transforms[marker_id]
         else:
-            print(f"Camera {self.camera_name}: No markers detected in this frame.")
+            self.node.get_logger().warn(f"Camera {self.camera_name}: No markers detected in this frame.")
 
 
     def check_precision(self, marker_id, transform):
@@ -918,7 +918,7 @@ class Camera():
             pos_err = np.all(position_range < self.position_threshold)
             rot_err = np.all(rotation_range < self.rotation_threshold)
 
-            print(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {pos_err}, Rot (rads): {rotation_range} Pass: {rot_err}")
+            self.node.get_logger().warn(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {pos_err}, Rot (rads): {rotation_range} Pass: {rot_err}")
 
             return pos_err and rot_err
         else:
