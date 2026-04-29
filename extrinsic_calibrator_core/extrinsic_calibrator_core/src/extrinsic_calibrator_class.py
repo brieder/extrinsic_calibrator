@@ -658,10 +658,12 @@ class ExtrinsicCalibrator(Node):
         table.field_names = ["Marker ID"] + [f"{cam.camera_name}" for cam in self.array_of_cameras]
         if type(table_data[0][0]) is bool:
             for marker_id, row in enumerate(table_data):
-                table.add_row([marker_id] + ['✓' if cell else '✗' for cell in row])
+                if any(row):
+                    table.add_row([marker_id] + ['✓' if cell else '✗' for cell in row])
         else:
             for marker_id, row in enumerate(table_data):
-                table.add_row([marker_id] + [cell for cell in row])
+                if any(row):
+                    table.add_row([marker_id] + [cell for cell in row])
         self.get_logger().info(f"{title}\n" + table.get_string())
 
 
@@ -670,10 +672,12 @@ class ExtrinsicCalibrator(Node):
         table.field_names = ["Marker ID"] + [f"Marker {i}" for i in range(self.largest_marker + 1)]
         if type(table_data[0][0]) is bool:
             for marker_id, row in enumerate(table_data):
-                table.add_row([marker_id] + ['✓' if cell else '✗' for cell in row])
+                if any(row):
+                    table.add_row([marker_id] + ['✓' if cell else '✗' for cell in row])
         else:
             for marker_id, row in enumerate(table_data):
-                table.add_row([marker_id] + [cell for cell in row])
+                if any(row):
+                    table.add_row([marker_id] + [cell for cell in row])
         self.get_logger().info(f"{title}\n" + table.get_string())
 
 
