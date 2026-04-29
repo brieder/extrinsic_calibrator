@@ -879,26 +879,12 @@ class Camera():
                     rot_matrix, _ = cv2.Rodrigues(rvec)
 
                     if marker_id == self.reference_marker and self.reference_marker_vertical:
+                        # rotate the marker as if it were flat
                         R_x_90 = np.array([
                             [1, 0, 0],
                             [0, 0, -1],
                             [0, 1, 0]
                         ])
-                        R_x_minus_90 = np.array([
-                            [1,  0,  0],
-                            [0,  0,  1],
-                            [0, -1,  0]
-                        ])
-                        R_y_90 = np.array([
-                            [ 0, 0, 1],
-                            [ 0, 1, 0],
-                            [-1, 0, 0]
-                        ])
-                        R_y_minus_90 = np.array([
-                            [0, 0, -1],
-                            [0, 1,  0],
-                            [1, 0,  0]
-                        ])                        
                         rot_matrix = rot_matrix @ R_x_90
 
                     translation_matrix = np.eye(4)
