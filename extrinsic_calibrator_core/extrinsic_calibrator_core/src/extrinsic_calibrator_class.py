@@ -737,9 +737,14 @@ class ArucoParams():
             node.get_logger().error(f"cv2.aruco doesn't have a dictionary with the name '{aruco_params.aruco_dict}'")
         self.marker_length = aruco_params.marker_length
 
+        self.reference_marker = aruco_params.reference_marker
+        self.reference_marker_vertical = aruco_params.reference_marker_vertical
+        
         self.draw_markers = aruco_params.draw_markers
+        
         self.frame_averaging = aruco_params.frame_averaging
         self.frame_averaging_queue_size = aruco_params.frame_averaging_queue_size
+        
         self.position_threshold = aruco_params.position_threshold
         self.rotation_threshold = aruco_params.rotation_threshold
 
@@ -763,9 +768,14 @@ class Camera():
         # Define Aruco marker properties
         self.aruco_dict = aruco_params.aruco_dict
 
+        self.reference_marker = aruco_params.reference_marker
+        self.reference_marker_vertical = aruco_params.reference_marker_vertical
+
         self.draw_markers = aruco_params.draw_markers
+
         self.frame_averaging = aruco_params.frame_averaging
         self.frame_averaging_queue_size = aruco_params.frame_averaging_queue_size
+
         self.position_threshold = aruco_params.position_threshold
         self.rotation_threshold = aruco_params.rotation_threshold
         
@@ -867,6 +877,30 @@ class Camera():
                 success, rvec, tvec = cv2.solvePnP(objPoints, corners[i], self.camera_matrix, self.dist_coeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 if success:
                     rot_matrix, _ = cv2.Rodrigues(rvec)
+
+                    if marker_id == self.reference_marker and self.reference_marker_vertical:
+                        R_x_90 = np.array([
+                            [1, 0, 0],
+                            [0, 0, -1],
+                            [0, 1, 0]
+                        ])
+                        R_x_minus_90 = np.array([
+                            [1,  0,  0],
+                            [0,  0,  1],
+                            [0, -1,  0]
+                        ])
+                        R_y_90 = np.array([
+                            [ 0, 0, 1],
+                            [ 0, 1, 0],
+                            [-1, 0, 0]
+                        ])
+                        R_y_minus_90 = np.array([
+                            [0, 0, -1],
+                            [0, 1,  0],
+                            [1, 0,  0]
+                        ])                        
+                        rot_matrix = rot_matrix @ R_x_90
+
                     translation_matrix = np.eye(4)
                     translation_matrix[:3, :3] = rot_matrix
                     translation_matrix[:3, 3] = tvec.flatten()
@@ -922,7 +956,7 @@ class Camera():
             pos_err = np.all(position_range < self.position_threshold)
             rot_err = np.all(rotation_range < self.rotation_threshold)
 
-            self.node.get_logger().warn(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {pos_err}, Rot (rads): {rotation_range} Pass: {rot_err}")
+            self.node.get_logger().warn(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {self.position_threshold} {pos_err}, Rot (rads): {rotation_range} Pass: {self.rotation_threshold} {rot_err}")
 
             return pos_err and rot_err
         else:

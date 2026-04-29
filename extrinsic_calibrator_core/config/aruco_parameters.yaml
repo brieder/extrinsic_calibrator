@@ -8,6 +8,9 @@ aruco_params:
   reference_marker:
     type: int
     default_value: 0
+  reference_marker_vertical:
+    type: bool
+    default_value: False
   draw_markers:
     type: bool
     default_value: False
