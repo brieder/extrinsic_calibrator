@@ -47,6 +47,7 @@
 import copy
 import random
 from collections import deque
+import time
 
 # Well-known libraries
 import cv2
@@ -161,6 +162,7 @@ class ExtrinsicCalibrator(Node):
         
         # To keep the Transforms alive
         while(1):
+            time.sleep(1)
             pass
         
         
