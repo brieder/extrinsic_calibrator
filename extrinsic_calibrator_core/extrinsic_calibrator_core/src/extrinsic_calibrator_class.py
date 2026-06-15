@@ -944,7 +944,8 @@ class Camera():
             pos_err = np.all(position_range < self.position_threshold)
             rot_err = np.all(rotation_range < self.rotation_threshold)
 
-            self.node.get_logger().warn(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {self.position_threshold} {pos_err}, Rot (rads): {rotation_range} Pass: {self.rotation_threshold} {rot_err}")
+            dist3 = np.linalg.norm((positions[0][0], positions[0][1], positions[0][2])) # marker camera distance for placement
+            self.node.get_logger().warn(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {self.position_threshold} {pos_err}, Rot (rads): {rotation_range} Pass: {self.rotation_threshold} {rot_err} Dist3: {dist3:.3f}")
 
             return pos_err and rot_err
         else:
