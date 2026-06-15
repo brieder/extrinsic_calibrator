@@ -778,8 +778,6 @@ class Camera():
         self.frame_averaging = aruco_params.frame_averaging
         self.frame_averaging_queue_size = aruco_params.frame_averaging_queue_size
 
-        self.sharpening = True
-
         self.position_threshold = aruco_params.position_threshold
         self.rotation_threshold = aruco_params.rotation_threshold
         
@@ -815,22 +813,6 @@ class Camera():
         self.avg_image_cache_count = 0
         self.avg_image_accumulator = None
         self.avg_image_queue = deque(maxlen=self.frame_averaging_queue_size)
-
-
-    def sharpen_unsharp_mask(image, kernel_size=(5, 5), sigma=1.0, amount=1.0, threshold=0):
-        """Return a sharpened version of the image, using an unsharp mask."""
-        blurred = cv2.GaussianBlur(image, kernel_size, sigma)
-        sharpened = float(amount + 1) * image - float(amount) * blurred
-
-        sharpened = np.maximum(sharpened, np.zeros(sharpened.shape))
-        sharpened = np.minimum(sharpened, 255 * np.ones(sharpened.shape))
-        sharpened = sharpened.round().astype(np.uint8)
-
-        if threshold > 0:
-            low_contrast_mask = np.absolute(image - blurred) < threshold
-            np.copyto(sharpened, image, where=low_contrast_mask)
-
-        return sharpened
 
 
     def camera_info_callback(self, msg):
@@ -877,9 +859,6 @@ class Camera():
             self.avg_image_queue.append(cv_image)
 
             #cv2.imwrite(f"{self.camera_name}_avg.png", det_image)
-
-        if self.sharpening:
-            det_image = self.sharpen_unsharp_mask(det_image)
 
         # For ArUco detection, you can use the filtered_image directly
         corners, ids, rejected_img_points = self.detector.detectMarkers(det_image)
