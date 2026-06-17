@@ -5,6 +5,10 @@ aruco_params:
   marker_length:
     type: double
     default_value: 0.2
+  marker_filter:
+    type: int_array
+    description: "List of marker ids to ignore."
+    default_value: []
   reference_marker:
     type: int
     default_value: 0

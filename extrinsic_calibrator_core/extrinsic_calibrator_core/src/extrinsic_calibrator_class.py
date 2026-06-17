@@ -738,6 +738,7 @@ class ArucoParams():
         else:
             node.get_logger().error(f"cv2.aruco doesn't have a dictionary with the name '{aruco_params.aruco_dict}'")
         self.marker_length = aruco_params.marker_length
+        self.marker_filter = aruco_params.marker_filter
 
         self.reference_marker = aruco_params.reference_marker
         self.reference_marker_vertical = aruco_params.reference_marker_vertical
@@ -781,6 +782,8 @@ class Camera():
         self.position_threshold = aruco_params.position_threshold
         self.rotation_threshold = aruco_params.rotation_threshold
         
+        self.marker_filter = aruco_params.marker_filter
+
         self.parameters = cv2.aruco.DetectorParameters()
         # Use subpixel corner refinement for more stable pose estimation.
         self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
@@ -866,6 +869,10 @@ class Camera():
         if ids is not None:
             for i, id in enumerate(ids):
                 marker_id = id[0]
+                
+                if marker_id in self.marker_filter:
+                    continue
+
                 detected_ids.add(marker_id)
                 
                 if marker_id not in self.marker_transforms and marker_id not in self.reliable_marker_transforms:
