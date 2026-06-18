@@ -57,10 +57,13 @@ from prettytable import PrettyTable
 # ROS-specific imports
 from cv_bridge import CvBridge
 from geometry_msgs.msg import TransformStamped
+import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 import tf2_ros
 import tf_transformations
+from rcl_interfaces.srv import GetParameters, SetParameters
+from rcl_interfaces.msg import Parameter, ParameterType
 
 from rclpy.qos import qos_profile_sensor_data, qos_profile_system_default
 from rclpy.qos_overriding_options import QoSOverridingOptions
@@ -157,6 +160,10 @@ class ExtrinsicCalibrator(Node):
             return False
         if not self.broadcast_cameras_and_markers_to_world():
             return False
+        
+        for camera in self.array_of_cameras:
+            camera.close(self)
+
         self.get_logger().info("Extrinsic calibration finished successfully.")
         self.get_logger().info("The transforms will remain alive while this Node remains too. Hit Ctrl+C to exit")
         
@@ -751,6 +758,10 @@ class ArucoParams():
         self.position_threshold = aruco_params.position_threshold
         self.rotation_threshold = aruco_params.rotation_threshold
 
+        self.upres_exposure = aruco_params.upres_exposure
+        self.upres_gain = aruco_params.upres_gain
+        self.upres_profile = aruco_params.upres_profile
+
             
 class Camera():
     def __init__(self, node:Node, camera_name:str, camera_id:int, image_topic:str, camera_info_topic:str, bridge:CvBridge, broadcaster:tf2_ros.TransformBroadcaster, aruco_params:ArucoParams):
@@ -784,6 +795,10 @@ class Camera():
         
         self.marker_filter = aruco_params.marker_filter
 
+        self.upres_exposure = aruco_params.upres_exposure
+        self.upres_gain = aruco_params.upres_gain
+        self.upres_profile = aruco_params.upres_profile
+
         self.parameters = cv2.aruco.DetectorParameters()
         # Use subpixel corner refinement for more stable pose estimation.
         self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
@@ -793,6 +808,18 @@ class Camera():
 
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.parameters)
         self.marker_length = aruco_params.marker_length  # length of the marker side in meters (adjust as needed)
+
+        self.marker_transforms = {}
+        self.reliable_marker_transforms = {}
+        
+        # frame averaging
+        self.avg_image_cache_count = 0
+        self.avg_image_accumulator = None
+        self.avg_image_queue = deque(maxlen=self.frame_averaging_queue_size)
+
+
+        self.upres_camera(node, camera_name)
+
 
         # Subscribe to the camera image topic and camera info
         self.image_sub = self.node.create_subscription(Image, 
@@ -809,13 +836,85 @@ class Camera():
         if self.draw_markers:
             self.cv2_image_publisher = self.node.create_publisher(Image, f"{image_topic}/detected_markers", 10)
 
-        self.marker_transforms = {}
-        self.reliable_marker_transforms = {}
+
+    def upres_camera(self, node:Node, camera_name:str):
+        # setup get client and request
+        self.get_param_cli = node.create_client(GetParameters, f'/{camera_name}/get_parameters')
+        while not self.get_param_cli.wait_for_service(timeout_sec=1.0):
+            node.get_logger().info('service not available, waiting again...')
+        self.get_param_req = GetParameters.Request()
+
+        # setup set client and request
+        self.set_param_cli = node.create_client(SetParameters, f'/{camera_name}/set_parameters')
+        while not self.set_param_cli.wait_for_service(timeout_sec=1.0):
+            node.get_logger().info('service not available, waiting again...')
+        self.set_param_req = SetParameters.Request()
+
+        # get the current rgb profile (RS only)
+        self.get_param_req.names.append('rgb_camera.color_profile')
+        self.get_param_req.names.append('rgb_camera.exposure')
+        self.get_param_req.names.append('rgb_camera.gain')
+        self.get_future = self.get_param_cli.call_async(self.get_param_req)
+
+        # wait for result
+        rclpy.spin_until_future_complete(node, self.get_future)
+        result = self.get_future.result()
+        self.orig_rgb_profile = self.get_future.result().values[0].string_value
+        self.orig_rgb_exposure = self.get_future.result().values[1].integer_value
+        self.orig_rgb_gain = self.get_future.result().values[2].integer_value
+
+        # if we need to change...
+        if self.upres_profile and self.orig_rgb_profile != self.upres_profile:
+            self.change_resolution(node, self.upres_profile, self.upres_exposure, self.upres_gain)
+
+
+    def change_resolution(self, node:Node, resolution:str, exposure:int, gain:int):
+        # set the color_profile and disable color (camera) so we can enable it again next (to get the res to take)
+        param = Parameter()
+        param.name = 'rgb_camera.color_profile'
+        param.value.type = ParameterType.PARAMETER_STRING
+        param.value.string_value = resolution
+        self.set_param_req.parameters.append(param)
+
+        param = Parameter()
+        param.name = 'rgb_camera.exposure'
+        param.value.type = ParameterType.PARAMETER_INTEGER
+        param.value.integer_value = exposure
+        self.set_param_req.parameters.append(param)
+
+        param = Parameter()
+        param.name = 'rgb_camera.gain'
+        param.value.type = ParameterType.PARAMETER_INTEGER
+        param.value.integer_value = gain
+        self.set_param_req.parameters.append(param)
+
+        # We have to cycle the camera to get the settings to take and this takes it down.
+        # We also reuse enable_param for enable = True.
+        enable_param = Parameter()
+        enable_param.name = 'enable_color'
+        enable_param.value.type = ParameterType.PARAMETER_BOOL
+        enable_param.value.bool_value = False
+        self.set_param_req.parameters.append(enable_param)
+
+        self.set_future = self.set_param_cli.call_async(self.set_param_req)
+        #rclpy.spin_until_future_complete(node, self.set_future)
+
+        time.sleep(1)
+
+        # renable color, reuse enable_param
+        self.set_param_req.parameters.clear()
+        enable_param.value.bool_value = True
         
-        # frame averaging
-        self.avg_image_cache_count = 0
-        self.avg_image_accumulator = None
-        self.avg_image_queue = deque(maxlen=self.frame_averaging_queue_size)
+        self.set_param_req.parameters.append(enable_param)
+        self.set_future = self.set_param_cli.call_async(self.set_param_req)
+        #rclpy.spin_until_future_complete(node, self.set_future)
+
+
+    def close(self, node:Node):
+        self.camera_info_sub = None
+        self.image_sub = None
+
+        self.change_resolution(node, self.orig_rgb_profile, self.orig_rgb_exposure, self.orig_rgb_gain)
 
 
     def camera_info_callback(self, msg):

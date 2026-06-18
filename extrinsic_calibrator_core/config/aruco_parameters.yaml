@@ -2,6 +2,15 @@ aruco_params:
   aruco_dict:
     type: string
     default_value: "DICT_APRILTAG_36h11"
+  draw_markers:
+    type: bool
+    default_value: False
+  frame_averaging:
+    type: bool
+    default_value: True
+  frame_averaging_queue_size:
+    type: int
+    default_value: 14
   marker_length:
     type: double
     default_value: 0.2
@@ -15,15 +24,6 @@ aruco_params:
   reference_marker_vertical:
     type: bool
     default_value: False
-  draw_markers:
-    type: bool
-    default_value: False
-  frame_averaging:
-    type: bool
-    default_value: True
-  frame_averaging_queue_size:
-    type: int
-    default_value: 14
   position_threshold:
     type: double
     default_value: 0.02
@@ -31,3 +31,15 @@ aruco_params:
     type: double
     default_value: 10.0
     description: "Rotation threshold in degrees."
+  upres_exposure:
+    type: int
+    default_value: 312
+    description: "Exposure to use during upres."
+  upres_gain:
+    type: int
+    default_value: 64
+    description: "Gain to use during upres."
+  upres_profile:
+    type: string
+    default_value: "1920x1080x30"
+    description: "Realsense Profile for upres."
