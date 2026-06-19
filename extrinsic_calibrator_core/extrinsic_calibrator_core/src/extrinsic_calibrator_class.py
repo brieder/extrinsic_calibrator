@@ -858,7 +858,12 @@ class Camera():
 
         # wait for result
         rclpy.spin_until_future_complete(node, self.get_future)
+        
         result = self.get_future.result()
+        if len(result.values) == 0:
+            node.get_logger().error(f'{camera_name}: Failed to get properties.')
+            return
+
         self.orig_rgb_profile = self.get_future.result().values[0].string_value
         self.orig_rgb_exposure = self.get_future.result().values[1].integer_value
         self.orig_rgb_gain = self.get_future.result().values[2].integer_value
@@ -869,6 +874,8 @@ class Camera():
 
 
     def change_resolution(self, node:Node, resolution:str, exposure:int, gain:int):
+        node.get_logger().info(f'{self.camera_name}: Changing resolution to {resolution}, exp {exposure}, gain {gain}.')
+
         # set the color_profile and disable color (camera) so we can enable it again next (to get the res to take)
         param = Parameter()
         param.name = 'rgb_camera.color_profile'
