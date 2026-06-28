@@ -92,6 +92,7 @@ class ExtrinsicCalibrator(Node):
         self.real_aruco_params = ArucoParams(self, imported_aruco_params)
 
         self.reference_marker = imported_aruco_params.reference_marker
+        self.reference_marker_flat = imported_aruco_params.reference_marker_flat
 
         # Try dynamic camera loading first
         self.array_of_cameras = self.load_cameras_dynamic()
@@ -581,6 +582,18 @@ class ExtrinsicCalibrator(Node):
 
         return reliable_camera_transform
 
+    def convert_matrix_cv_to_ros(self, cvT):
+        # Conversion from CV (RDF) to ROS (FLU)
+        
+        cv_to_rosT = np.array([
+            [ 0,  0,  1,  0],
+            [-1,  0,  0,  0],
+            [ 0, -1,  0,  0],
+            [ 0,  0,  0,  1]
+        ])
+
+        # Transform extrinsic matrix to align with ROS conventions
+        return cv_to_rosT @ cvT @ cv_to_rosT.T
 
     def broadcast_cameras_and_markers_to_world(self):
         # Create an array of transforms to be broadcasted
@@ -589,15 +602,31 @@ class ExtrinsicCalibrator(Node):
         # Broadcast the transform between the world marker and "map"
         origin_transform = np.eye(4)
 
+        R_y_90 = np.array([
+            [0, 0, 1, 0],
+            [0, 1, 0, 0],
+            [-1,0, 0, 0],
+            [0, 0, 0, 1]
+        ])
+        R_y_neg_90 = np.array([
+            [0, 0,-1, 0],
+            [0, 1, 0, 0],
+            [1, 0, 0, 0],
+            [0, 0, 0, 1]
+        ])
+
         t = TransformStamped()
-            
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = f"marker_{self.world_marker_id}"
         t.child_frame_id = "map"
-        
+
+        origin_transform = self.convert_matrix_cv_to_ros(origin_transform)
+        if self.reference_marker_flat:
+            origin_transform = R_y_90 @ origin_transform
+
         translation = tf_transformations.translation_from_matrix(origin_transform)
         quaternion = tf_transformations.quaternion_from_matrix(origin_transform)
-        
+
         t.transform.translation.x = translation[0]
         t.transform.translation.y = translation[1]
         t.transform.translation.z = translation[2]
@@ -618,6 +647,10 @@ class ExtrinsicCalibrator(Node):
                 t.child_frame_id = f"marker_{destination_marker_id}"
                 
                 transform = self.reliable_transform_between_markers_table[self.center_marker][destination_marker_id]
+
+                transform = self.convert_matrix_cv_to_ros(transform)
+                # if reference marker is flat, parent is transformed, nothing to do
+
                 translation = tf_transformations.translation_from_matrix(transform)
                 quaternion = tf_transformations.quaternion_from_matrix(transform)
                 
@@ -631,7 +664,6 @@ class ExtrinsicCalibrator(Node):
                 t.transform.rotation.w = quaternion[3]
                 
                 transforms.append(t)
-                
                 
         # Add all the camera transforms
         for camera in self.array_of_cameras:
@@ -643,12 +675,18 @@ class ExtrinsicCalibrator(Node):
                 t.child_frame_id = camera.camera_name
                 
                 transform = self.map_to_cameras_transform_table[camera.camera_id]
+
+                transform = self.convert_matrix_cv_to_ros(transform)
+                if self.reference_marker_flat:
+                    transform = R_y_neg_90 @ transform
+
                 translation = tf_transformations.translation_from_matrix(transform)
                 quaternion = tf_transformations.quaternion_from_matrix(transform)
                 
                 t.transform.translation.x = translation[0]
                 t.transform.translation.y = translation[1]
                 t.transform.translation.z = translation[2]
+
                 t.transform.rotation.x = quaternion[0]
                 t.transform.rotation.y = quaternion[1]
                 t.transform.rotation.z = quaternion[2]
@@ -659,6 +697,7 @@ class ExtrinsicCalibrator(Node):
         # Broadcast all transforms at once
         if transforms:
             self.tf_broadcaster.sendTransform(transforms)
+
         return True
 
 
@@ -748,7 +787,6 @@ class ArucoParams():
         self.marker_filter = aruco_params.marker_filter
 
         self.reference_marker = aruco_params.reference_marker
-        self.reference_marker_vertical = aruco_params.reference_marker_vertical
         
         self.draw_markers = aruco_params.draw_markers
         
@@ -783,7 +821,6 @@ class Camera():
         self.aruco_dict = aruco_params.aruco_dict
 
         self.reference_marker = aruco_params.reference_marker
-        self.reference_marker_vertical = aruco_params.reference_marker_vertical
 
         self.draw_markers = aruco_params.draw_markers
 
@@ -992,15 +1029,6 @@ class Camera():
                 success, rvec, tvec = cv2.solvePnP(objPoints, corners[i], self.camera_matrix, self.dist_coeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 if success:
                     rot_matrix, _ = cv2.Rodrigues(rvec)
-
-                    if marker_id == self.reference_marker and self.reference_marker_vertical:
-                        # rotate the marker as if it were flat
-                        R_x_90 = np.array([
-                            [1, 0, 0],
-                            [0, 0, -1],
-                            [0, 1, 0]
-                        ])
-                        rot_matrix = rot_matrix @ R_x_90
 
                     translation_matrix = np.eye(4)
                     translation_matrix[:3, :3] = rot_matrix

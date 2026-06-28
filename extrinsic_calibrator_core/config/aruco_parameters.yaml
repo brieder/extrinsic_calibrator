@@ -21,7 +21,7 @@ aruco_params:
   reference_marker:
     type: int
     default_value: 0
-  reference_marker_vertical:
+  reference_marker_flat:
     type: bool
     default_value: False
   position_threshold:
