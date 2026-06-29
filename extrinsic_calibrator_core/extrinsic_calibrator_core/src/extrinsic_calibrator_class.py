@@ -617,12 +617,15 @@ class ExtrinsicCalibrator(Node):
 
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = f"marker_{self.world_marker_id}"
-        t.child_frame_id = "map"
+        # t.header.frame_id = f"marker_{self.world_marker_id}"
+        # t.child_frame_id = "map"
+        t.header.frame_id = "map"
+        t.child_frame_id = f"marker_{self.world_marker_id}"
 
         origin_transform = self.convert_matrix_cv_to_ros(origin_transform)
         if self.reference_marker_flat:
-            origin_transform = R_y_90 @ origin_transform
+            #origin_transform = R_y_90 @ origin_transform
+            origin_transform = R_y_neg_90 @ origin_transform
 
         translation = tf_transformations.translation_from_matrix(origin_transform)
         quaternion = tf_transformations.quaternion_from_matrix(origin_transform)
