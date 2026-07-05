@@ -878,16 +878,20 @@ class Camera():
 
 
     def upres_camera(self, node:Node, camera_name:str):
+        self.upresd = False
+        
         # setup get client and request
         self.get_param_cli = node.create_client(GetParameters, f'/{camera_name}/get_parameters')
         while not self.get_param_cli.wait_for_service(timeout_sec=1.0):
-            node.get_logger().info('service not available, waiting again...')
+            node.get_logger().info('GetParameters service not available, waiting again...')
+            return
         self.get_param_req = GetParameters.Request()
 
         # setup set client and request
         self.set_param_cli = node.create_client(SetParameters, f'/{camera_name}/set_parameters')
         while not self.set_param_cli.wait_for_service(timeout_sec=1.0):
-            node.get_logger().info('service not available, waiting again...')
+            node.get_logger().info('SetParameters service not available, waiting again...')
+            return
         self.set_param_req = SetParameters.Request()
 
         # get the current rgb profile (RS only)
@@ -911,6 +915,8 @@ class Camera():
         # if we need to change...
         if self.upres_profile and self.orig_rgb_profile != self.upres_profile:
             self.change_resolution(node, self.upres_profile, self.upres_exposure, self.upres_gain)
+            self.upresd = True
+
 
 
     def change_resolution(self, node:Node, resolution:str, exposure:int, gain:int):
@@ -961,7 +967,8 @@ class Camera():
         self.camera_info_sub = None
         self.image_sub = None
 
-        self.change_resolution(node, self.orig_rgb_profile, self.orig_rgb_exposure, self.orig_rgb_gain)
+        if self.upresd:
+            self.change_resolution(node, self.orig_rgb_profile, self.orig_rgb_exposure, self.orig_rgb_gain)
 
 
     def camera_info_callback(self, msg):
