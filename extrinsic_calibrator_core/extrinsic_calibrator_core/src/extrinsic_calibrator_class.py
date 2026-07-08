@@ -138,8 +138,8 @@ class ExtrinsicCalibrator(Node):
             for camera in self.array_of_cameras:
                 camera:Camera
                 if camera.camera_matrix is None or camera.dist_coeffs is None:
-                    self.get_logger().warn(f"Camera {camera.camera_name} parameters not yet received. Is the camera_info topic correct?")
-            self.get_logger().warn(f"Not all marker transforms gathered successfully")
+                    self.get_logger().warning(f"Camera {camera.camera_name} parameters not yet received. Is the camera_info topic correct?")
+            self.get_logger().warning(f"Not all marker transforms gathered successfully")
             return False
 
 
@@ -202,18 +202,18 @@ class ExtrinsicCalibrator(Node):
             # Check if a camera is only seeing one marker
             elif sum(self.is_marker_visible_from_camera_table[marker_id][camera.camera_id] for marker_id in range(self.largest_marker + 1)) == 1:
                 if (self.is_marker_visible_from_camera_table[marker_id][camera.camera_id] for marker_id in range(self.largest_marker + 1)):
-                    self.get_logger().warn(f"Camera {camera.camera_name} is only seeing one marker (Marker {marker_id})")
+                    self.get_logger().warning(f"Camera {camera.camera_name} is only seeing one marker (Marker {marker_id})")
                     
         # Check if any row has all False values
         for marker_id in range(self.largest_marker + 1):
             # Check if a marker is not seen by any camera
             if all([not self.is_marker_visible_from_camera_table[marker_id][camera.camera_id] for camera in self.array_of_cameras]):
-                # self.get_logger().warn(f"Marker {marker_id} is not seen by any camera")
+                # self.get_logger().warning(f"Marker {marker_id} is not seen by any camera")
                 pass
             # Check if a marker is olny seen by one camera
             elif sum(self.is_marker_visible_from_camera_table[marker_id][camera.camera_id] for camera in self.array_of_cameras) == 1:
                 if (self.is_marker_visible_from_camera_table[marker_id][camera.camera_id] for camera in self.array_of_cameras):
-                    self.get_logger().warn(f"Marker {marker_id} is only seen by one camera (Camera {camera.camera_name})")
+                    self.get_logger().warning(f"Marker {marker_id} is only seen by one camera (Camera {camera.camera_name})")
                             
         # Check if specifically marker 0 is seen by any camera
         self.reference_marker_visible = any(
@@ -221,7 +221,7 @@ class ExtrinsicCalibrator(Node):
             for camera in self.array_of_cameras
         )
         if not self.reference_marker_visible:
-            self.get_logger().warn(f"Marker {self.reference_marker} is not seen by any camera. Falling back to a different world marker.")
+            self.get_logger().warning(f"Marker {self.reference_marker} is not seen by any camera. Falling back to a different world marker.")
 
         return True
         
@@ -269,7 +269,7 @@ class ExtrinsicCalibrator(Node):
             self.world_marker_id = self.reference_marker
         else:
             self.world_marker_id = self.center_marker
-            self.get_logger().warn(f"Using Marker {self.world_marker_id} as the world reference.")
+            self.get_logger().warning(f"Using Marker {self.world_marker_id} as the world reference.")
         
         return True
         
@@ -545,7 +545,7 @@ class ExtrinsicCalibrator(Node):
                 else:
                     self.map_to_cameras_transform_table[camera.camera_id] = None
             if self.map_to_cameras_transform_table[camera.camera_id] is None:
-                self.get_logger().warn(
+                self.get_logger().warning(
                     f"Camera {camera.camera_name} has no path to the world marker (Marker {self.world_marker_id})."
                 )
         
@@ -763,7 +763,7 @@ class ExtrinsicCalibrator(Node):
             image_topic = fields.get('image_topic')
             info_topic = fields.get('camera_info_topic')
             if not image_topic or not info_topic:
-                self.get_logger().warn(
+                self.get_logger().warning(
                     f"Camera '{cam_name}' skipped: requires 'image_topic' and 'camera_info_topic'. Got: {fields}"
                 )
                 continue
@@ -972,7 +972,7 @@ class Camera():
 
 
     def camera_info_callback(self, msg):
-        #self.node.get_logger().warn(f'camera_info_callback {self.camera_info_topic}')
+        #self.node.get_logger().warning(f'camera_info_callback {self.camera_info_topic}')
         
         if self.camera_matrix is None:
             self.camera_matrix = np.array(msg.k).reshape((3, 3))
@@ -981,13 +981,13 @@ class Camera():
 
 
     def image_callback(self, msg):
-        #self.node.get_logger().warn(f'image_callback {self.image_topic}')     
+        #self.node.get_logger().warning(f'image_callback {self.image_topic}')     
 
         if self.are_all_transforms_precise(verbose=False):
             return
         
         if self.camera_matrix is None or self.dist_coeffs is None:
-            self.node.get_logger().warn(f"Camera {self.camera_name} parameters not yet received.")
+            self.node.get_logger().warning(f"Camera {self.camera_name} parameters not yet received.")
             return
         
         cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
@@ -1074,7 +1074,7 @@ class Camera():
                     if marker_id in self.marker_transforms:
                         del self.marker_transforms[marker_id]
         else:
-            self.node.get_logger().warn(f"Camera {self.camera_name}: No markers detected in this frame.")
+            self.node.get_logger().warning(f"Camera {self.camera_name}: No markers detected in this frame.")
 
 
     def check_precision(self, marker_id, transform):
@@ -1096,7 +1096,7 @@ class Camera():
             rot_err = np.all(rotation_range < self.rotation_threshold)
 
             dist3 = np.linalg.norm((positions[0][0], positions[0][1], positions[0][2])) # marker camera distance for placement
-            self.node.get_logger().warn(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {self.position_threshold} {pos_err}, Rot (rads): {rotation_range} Pass: {self.rotation_threshold} {rot_err} Dist3: {dist3:.3f}")
+            self.node.get_logger().warning(f"{self.camera_name} {marker_id} Pos: {position_range} Pass: {self.position_threshold} {pos_err}, Rot (rads): {rotation_range} Pass: {self.rotation_threshold} {rot_err} Dist3: {dist3:.3f}")
 
             return pos_err and rot_err
         else:
@@ -1112,5 +1112,5 @@ class Camera():
             if verbose:
                 for marker_id, transform in self.marker_transforms.items():
                     if marker_id not in self.reliable_marker_transforms.keys():
-                        self.node.get_logger().warn(f"Camera {self.camera_name}: Marker {marker_id} is not reliable, yet")
+                        self.node.get_logger().warning(f"Camera {self.camera_name}: Marker {marker_id} is not reliable, yet")
             return False
