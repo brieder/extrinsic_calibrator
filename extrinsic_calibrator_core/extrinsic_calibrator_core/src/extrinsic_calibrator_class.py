@@ -906,7 +906,9 @@ class Camera():
         self.set_future = self.set_param_cli.call_async(self.set_param_req)
         #rclpy.spin_until_future_complete(node, self.set_future)
 
-        time.sleep(1)
+        # delay between disable / enable
+        # too fast and the camera will lock up. (1s can be iffy?)
+        time.sleep(1) 
 
         # renable color, reuse enable_param
         self.set_param_req.parameters.clear()
